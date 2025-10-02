@@ -157,7 +157,7 @@ def gif(input_pattern="frames/frame_%05d.png", output_gif="output.gif",
     except subprocess.CalledProcessError as e:
         print("Error en ffmpeg:", e)
 
-def flux_plot(theta_vec):
+def flux_plot(theta_vec_list):
     '''
     Function take a list normalizing the flux, converting the list in a 
 csv file and rename the columns
@@ -165,7 +165,18 @@ csv file and rename the columns
 
     '''
     #lat,lon,radii = theta_vec
-    lat, lon, radii = theta_vec
+    lat_list = []
+    lon_list = []
+    radii_list =[]
+    
+    for elem in theta_vec_list:
+        lat_list.append(elem[0])
+        lon_list.append(elem[1])
+        radii_list.append(elem[2])
+        
+        
+        
+    
     frame_files = sorted(glob.glob("frames/frame_*.png"))
     fluxes = []
 
@@ -187,7 +198,7 @@ csv file and rename the columns
     df = df[['Days', 'flux_normalized']]  
 
     # saving csv
-    df.to_csv(f'lat_{lat}_lon_{lon}_radii{radii}.csv', index=False)
+    df.to_csv(f'lat_{lat_list}_lon_{lon_list}_radii{radii_list}_numberspots{len(theta_vec_list)}.csv', index=False)
  
     
     #df.to_csv("test.csv", index=False)
@@ -199,7 +210,7 @@ csv file and rename the columns
     ax.set_title("Lightcurve from PNG frames")
     plt.style.use('default')
     plt.tight_layout()
-    plt.savefig(f'lat_{lat}_lon{lon}_radii{radii}.png', dpi=600)
+    plt.savefig(f'lat_{lat_list}_lon{lon_list}_radii{radii_list}.png', dpi=600)
     plt.show()
     return df["flux_normalized"], df["Days"]
 
@@ -233,16 +244,19 @@ def run_parallel_frames(points, base_intensity, elev, azim,
 
 
  # Generating animation
-def star_animate(theta_vec):
-    
+def star_animate(theta_vec_list):
+
     #lat,lon,radii = theta_vec
-    lat,lon,radii = theta_vec
-    add_spots(lat, lon, radii)
+    print("Generate spherical grid for several light_curves")
+    for elem in theta_vec_list:
+        lat, lon ,radii = elem
+    
+        add_spots(lat, lon, radii)
         # spherical grid with fibonacci points
-    print("Generate spherical grid")
-    phi, theta = fibonacci_sphere(n_points)
-    x, y, z = cartesian_from_spherical(phi, theta)
-    points = np.vstack([x, y, z]).T
+    
+        phi, theta = fibonacci_sphere(n_points)
+        x, y, z = cartesian_from_spherical(phi, theta)
+        points = np.vstack([x, y, z]).T
     
     # Calculate point of view
     elev_rad = np.deg2rad(elev) #elevation of point of view
@@ -287,11 +301,14 @@ def star_animate(theta_vec):
                     total_frames, vmin, vmax, spots, r_val, cadence_time,
                     n_workers=8) 
     
+
+    print("\nCreando GIF...")
+    gif(input_pattern="frames/frame_%05d.png", output_gif=f"period_{rotation_period}_points{n_points}_obs{observing_baseline_days}_cadence{cadence_time}_nspots{len(spots)}.gif", framerate=15)
     plt.style.use('default')
     spots.clear()
     plt.close(fig) 
  
-    return flux_plot(theta_vec)
+    return flux_plot(theta_vec_list)
 
 def load_tess():
 # load tess light_curves
@@ -378,7 +395,7 @@ def function_mse(flux, days):
 if __name__ == '__main__':
     # stellar parameter
     r_val = 1.0
-    n_points = 60000
+    n_points = 80000
     u1 = 0.4
     u2 =0.3# limb darkening coefficients
     rotation_period = 1.0 * u.day
@@ -393,14 +410,14 @@ if __name__ == '__main__':
     
     # base lines time parameter
     observing_baseline_days = 1 * u.day
-    cadence_time = 20 * u.minute
+    cadence_time = 5 * u.minute
     total_frames = int((observing_baseline_days / cadence_time).decompose().value)
     
     #load flux and days of test light curve
     #flux_test, days_test =load_tess()
     #parameters where we are selecting the top1 simulated lightcurve by MSE
     #initial_params = function_mse(flux_test, days_test)
-    theta = (20, 0, 15)
+    theta = ((20, 0, 15),(0,30,4),(-45,180,30),(-20,60,15),(0,200,4),(0,140,15))
     star_animate(theta)
 
     
