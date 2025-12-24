@@ -410,273 +410,134 @@ def main(p0,nwalkers,niter,ndim,lnprob,data,save_chain=True):
     sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=(data,))
 
     print("Running burn-in...")
-    p0, _, _ = sampler.run_mcmc(p0, 10)
+    p0, _, _ = sampler.run_mcmc(p0, 3)
     sampler.reset()
 
     print("Running production...")
     pos, prob, state = sampler.run_mcmc(p0, niter)
 
-        # Diagnósticos
-    print("Autocorrelation time:", sampler.get_autocorr_time())
-    print("Acceptance fraction:", np.mean(sampler.acceptance_fraction))
-    ###
-        # Diagnósticos
-    try:
-        tau = sampler.get_autocorr_time()
-        print(f"Autocorrelation time: {tau}")
-        print(f"Mean acceptance fraction: {np.mean(sampler.acceptance_fraction):.3f}")
-        print(f"Number of effective samples: {sampler.get_chain().shape[0] / np.mean(tau):.0f}")
-    except:
-        print("Could not compute autocorrelation time")
-    
-    if save_chain:
-        # Guardar la cadena
-        np.save('mcmc_chain.npy', sampler.get_chain())
-        np.save('mcmc_log_prob.npy', sampler.get_log_prob())
 
+        # Diagnósticos
 
     return sampler, pos, prob, state
 
-def simple_autocorr(x, max_lag=100):
-    n = len(x)
-    if n < 10:
-        return np.zeros(max_lag)
+def plot_simple_traces(sampler, labels):
+    """Gráficas simples de evolución de parámetros"""
+    nwalkers, niter, ndim = sampler.chain.shape
     
-    x = x - np.mean(x)
-    var = np.var(x)
+    # 1. Evolución de cada parámetro
+    fig, axes = plt.subplots(ndim + 1, 1, figsize=(10, 2*(ndim+1)))
     
-    if var == 0:
-        return np.zeros(max_lag)
-    
-    acf = np.zeros(max_lag)
-    for lag in range(min(max_lag, n-1)):
-        acf[lag] = np.sum(x[:n-lag] * x[lag:]) / (var * (n - lag))
-    
-    return acf
-
-
-##analysis block
-def generate_mcmc_report(sampler, data, param_names, best_params, true_params=None):
-  
-
-
-    days, flux, flux_err = data
-    n_params = len(param_names)
-    
-    # Crear una figura grande con subplots
-    fig = plt.figure(figsize=(15, 10))
-    
-    # 1. TRAZAS DE CADENAS (Temporal evolution)
-    for i in range(n_params):
-        ax = plt.subplot(n_params + 3, 3, i*3 + 1)
-        samples = sampler.get_chain()[:, :, i]
-        for walker in range(min(20, samples.shape[1])):  # Mostrar solo 20 walkers para             
-            ax.plot(samples[:, walker], alpha=0.3, linewidth=0.5)
-            ax.set_ylabel(param_names[i])
-            ax.set_xlabel('Iteración')
-            ax.grid(True, alpha=0.3)
-        
-    # 2. DISTRIBUCIÓN POSTERIOR
-    for i in range(n_params):
-        ax = plt.subplot(n_params + 3, 3, i*3 + 2)
-        flat_samples = sampler.get_chain()[:, :, i].flatten()
-        ax.hist(flat_samples, bins=50, density=True, alpha=0.7, edgecolor='black')
-        
-        # Calcular estadísticas
-        mean_val = np.mean(flat_samples)
-        median_val = np.median(flat_samples)
-        std_val = np.std(flat_samples)
-        
-        # Percentiles
-        q16, q50, q84 = np.percentile(flat_samples, [16, 50, 84])
-        
-        # Plot estadísticas
-        ax.axvline(mean_val, color='red', linestyle='--', label=f'Mean: {mean_val:.3f}')
-        ax.axvline(median_val, color='green', linestyle='--', label=f'Median: {median_val:.3f}')
-        if true_params is not None:
-            ax.axvline(true_params[i], color='blue', linestyle='-', 
-                      linewidth=2, label=f'True: {true_params[i]:.3f}')
-        
-        ax.set_xlabel(param_names[i])
-        ax.set_ylabel('Density')
-        ax.legend(fontsize=8)
+    for i in range(ndim):
+        ax = axes[i]
+        for j in range(min(nwalkers, 10)):  # Solo 10 walkers para claridad
+            ax.plot(sampler.chain[j, :, i], alpha=0.5, lw=0.8)
+        ax.set_ylabel(labels[i])
         ax.grid(True, alpha=0.3)
-        
-        # Añadir texto con estadísticas
-        stats_text = f'σ = {std_val:.3f}\n16%: {q16:.3f}\n84%: {q84:.3f}'
-        ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, 
-                fontsize=8, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
-    #  3. DIAGNÓSTICOS DE CONVERGENCIA
-    # ax_conv ocupará toda la última fila (3 columnas)
-    ax_conv = plt.subplot2grid((n_params + 3, 3), (n_params, 0), colspan=3)
-    mean_log_prob = np.mean(sampler.get_log_prob(), axis=1)
-    ax_conv.plot(mean_log_prob, label='Mean log probability')
-    ax_conv.set_xlabel('Iteración')
-    ax_conv.set_ylabel('Log Probability')
-    ax_conv.legend()
-    ax_conv.grid(True, alpha=0.3)
+    # 2. Evolución del likelihood
+    axes[-1].plot(np.mean(sampler.lnprobability, axis=0), 'b-', lw=2, label='Promedio')
+    axes[-1].fill_between(range(niter),
+                         np.percentile(sampler.lnprobability, 25, axis=0),
+                         np.percentile(sampler.lnprobability, 75, axis=0),
+                         alpha=0.3, label='Rango 25-75%')
+    axes[-1].set_ylabel('ln(Likelihood)')
+    axes[-1].set_xlabel('Iteración')
+    axes[-1].legend()
+    axes[-1].grid(True, alpha=0.3)
     
-    # 4. FUNCIÓN DE AUTOCORRELACIÓN
-    if n_params <= 3:
-        for i in range(n_params):
-            ax_acf = plt.subplot(n_params + 3, 3, (n_params+1)*3 + i + 1)
-            chain = sampler.get_chain()[:, :, i]
-            # Calcular autocorrelación para cada walker y promediar
-            max_lag = min(100, chain.shape[0] // 2)
-            acf_mean = np.zeros(max_lag)
-            for w in range(chain.shape[1]):
-                acf = simple_autocorr(chain[:, w], max_lag=max_lag)
-                acf_mean += acf[:max_lag]
-            acf_mean /= chain.shape[1]
-            
-            ax_acf.plot(acf_mean)
-            ax_acf.axhline(0, color='k', linestyle='--', alpha=0.5)
-            ax_acf.set_xlabel('Lag')
-            ax_acf.set_ylabel(f'ACF ({param_names[i]})')
-            ax_acf.grid(True, alpha=0.3)
-    
-    plt.suptitle('MCMC Analysis Report', fontsize=16, y=1.02)
+    plt.suptitle('Evolución de Parámetros y Likelihood')
     plt.tight_layout()
-    plt.savefig('mcmc_report.png', dpi=300, bbox_inches='tight')
-    plt.close()
+    plt.savefig('traces_simples.png', dpi=150, bbox_inches='tight')
+    plt.show()
     
     return fig
+    
+def plot_walker_positions(sampler, labels):
+    """Muestra la posición inicial vs final de los walkers"""
+    nwalkers, niter, ndim = sampler.chain.shape
+    
+    fig, axes = plt.subplots(1, ndim, figsize=(4*ndim, 4))
+    
+    if ndim == 1:
+        axes = [axes]
+    
+    for i in range(ndim):
+        ax = axes[i]
+        # Posiciones iniciales
+        initial = sampler.chain[:, 0, i]
+        # Posiciones finales
+        final = sampler.chain[:, -1, i]
+        
+        ax.scatter([0]*nwalkers, initial, alpha=0.6, label='Inicial', s=50)
+        ax.scatter([1]*nwalkers, final, alpha=0.6, label='Final', s=50)
+        
+        # Conectar puntos del mismo walker
+        for w in range(min(nwalkers, 20)):
+            ax.plot([0, 1], [initial[w], final[w]], 'gray', alpha=0.2, lw=0.5)
+        
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(['Inicio', 'Fin'])
+        ax.set_ylabel(labels[i])
+        ax.set_title(f'Movimiento {labels[i]}')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+    
+    plt.tight_layout()
+    plt.savefig('movimiento_walkers.png', dpi=150, bbox_inches='tight')
+    plt.show()
 
-def generate_statistical_summary(sampler, param_names, best_params):
-    """
-    Genera un resumen estadístico detallado.
-    """
-    summary = "\n" + "="*60 + "\n"
-    summary += "MCMC STATISTICAL SUMMARY\n"
-    summary += "="*60 + "\n\n"
+def create_simple_report(sampler, initial_params, labels):
+    """Crea un reporte simple de la simulación"""
+    flat_samples = sampler.flatchain
+    flat_lnprob = sampler.flatlnprobability
     
-    for i, name in enumerate(param_names):
-        flat_samples = sampler.get_chain()[:, :, i].flatten()
-        
-        # Estadísticas básicas
-        mean_val = np.mean(flat_samples)
-        median_val = np.median(flat_samples)
-        std_val = np.std(flat_samples)
-        mad_val = np.median(np.abs(flat_samples - median_val))
-        
-        # Intervalos de credibilidad
-        q5, q16, q50, q84, q95 = np.percentile(flat_samples, [5, 16, 50, 84, 95])
-        
-        # Mejor valor (máximo de probabilidad)
-        best_val = best_params[i]
-        
-        summary += f"Parameter: {name}\n"
-        summary += "-"*40 + "\n"
-        summary += f"  Mean:        {mean_val:.4f} ± {std_val:.4f}\n"
-        summary += f"  Median:      {median_val:.4f} (MAD: {mad_val:.4f})\n"
-        summary += f"  Best fit:    {best_val:.4f}\n"
-        summary += f"  68% CI:      [{q16:.4f}, {q84:.4f}]\n"
-        summary += f"  95% CI:      [{q5:.4f}, {q95:.4f}]\n"
-        summary += f"  R-hat (approx): {gelman_rubin(sampler, i):.3f}\n\n"
+    # Encontrar mejor muestra
+    best_idx = np.argmax(flat_lnprob)
+    best_params = flat_samples[best_idx]
+    best_lnprob = flat_lnprob[best_idx]
     
-    # Información del sampler
-    summary += "Sampler Information:\n"
-    summary += "-"*40 + "\n"
-    summary += f"Number of walkers:      {sampler.get_chain().shape[1]}\n"
-    summary += f"Number of iterations:   {sampler.get_chain().shape[0]}\n"
-    summary += f"Total samples:         {sampler.get_chain().size // len(param_names)}\n"
-    summary += f"Mean acceptance rate:  {np.mean(sampler.acceptance_fraction):.3f}\n"
+    print("\n" + "="*50)
+    print("REPORTE DE SIMULACIÓN MCMC (PRUEBA)")
+    print("="*50)
     
-    try:
-        tau = sampler.get_autocorr_time()
-        summary += f"Autocorrelation time:  {tau}\n"
-        summary += f"Effective samples:     {sampler.get_chain().shape[0] / np.mean(tau):.0f}\n"
-    except:
-        summary += "Autocorrelation time:  Could not compute\n"
+    print(f"\n📊 Configuración:")
+    print(f"   • Walkers: {sampler.chain.shape[0]}")
+    print(f"   • Iteraciones: {sampler.chain.shape[1]}")
+    print(f"   • Parámetros: {sampler.chain.shape[2]}")
+    print(f"   • Total muestras: {len(flat_samples)}")
     
-    return summary
+    print(f"\n🎯 Parámetros iniciales (MSE):")
+    for i, label in enumerate(labels):
+        print(f"   • {label}: {initial_params[i]:.3f}")
+    
+    print(f"\n🏆 Mejor ajuste encontrado:")
+    for i, label in enumerate(labels):
+        print(f"   • {label}: {best_params[i]:.3f}")
+    print(f"   • ln(Likelihood): {best_lnprob:.2f}")
+    
+    print(f"\n📈 Rango explorado:")
+    for i, label in enumerate(labels):
+        samples = flat_samples[:, i]
+        print(f"   • {label}: [{samples.min():.3f}, {samples.max():.3f}]")
+    
+    print(f"\n💾 Archivos generados:")
+    print("   1. traces_simples.png - Evolución de parámetros")
+    print("   2. movimiento_walkers.png - Movimiento de walkers")
+    print("   3. corner_plot_simple.png - Distribuciones")
+    
+    # Guardar resultados en un archivo de texto
+    with open('reporte_mcmc.txt', 'w') as f:
+        f.write(f"Reporte MCMC - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("="*50 + "\n")
+        f.write(f"Mejores parámetros:\n")
+        for i, label in enumerate(labels):
+            f.write(f"{label}: {best_params[i]:.6f}\n")
+        f.write(f"ln(L): {best_lnprob:.2f}\n")
+    
+    return best_params, best_lnprob
 
-def gelman_rubin(sampler, param_idx):
-    """
-    Calcula el estadístico R-hat de Gelman-Rubin para diagnosticar convergencia.
-    """
-    chains = sampler.get_chain()[:, :, param_idx]
-    n_iter, n_walkers = chains.shape
-    
-    # Mean of each chain
-    chain_means = np.mean(chains, axis=0)
-    
-    # Mean of all chains
-    overall_mean = np.mean(chains)
-    
-    # Between-chain variance
-    B = n_iter / (n_walkers - 1) * np.sum((chain_means - overall_mean)**2)
-    
-    # Within-chain variance
-    W = np.mean(np.var(chains, axis=0, ddof=1))
-    
-    # Variance estimate
-    var_est = (n_iter - 1) / n_iter * W + B / n_iter
-    
-    # R-hat statistic
-    Rhat = np.sqrt(var_est / W)
-    
-    return Rhat
 
-def plot_corner_with_stats(samples, param_names, best_params):
-    """
-    Corner plot mejorado con estadísticas.
-    """
-    fig = corner.corner(samples, 
-                       labels=param_names,
-                       show_titles=True,
-                       title_fmt='.3f',
-                       quantiles=[0.16, 0.5, 0.84],
-                       plot_datapoints=True,
-                       fill_contours=True,
-                       levels=[0.68, 0.95],
-                       color='blue',
-                       truths=best_params,
-                       truth_color='red',
-                       label_kwargs={'fontsize': 12})
-    
-    # Añadir información adicional
-    fig.text(0.95, 0.95, f'N = {len(samples):,} samples',
-             ha='right', va='top',
-             fontsize=10,
-             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
-    plt.savefig('corner_plot_enhanced.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    return fig
-
-def save_complete_report(sampler, data, param_names, best_params, config):
-    """
-    Guarda un informe completo en un archivo de texto.
-    """
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    with open('mcmc_analysis_report.txt', 'w') as f:
-        f.write(f"MCMC Analysis Report\n")
-        f.write(f"Generated: {timestamp}\n")
-        f.write("="*60 + "\n\n")
-        
-        f.write("CONFIGURATION PARAMETERS:\n")
-        f.write("-"*40 + "\n")
-        for key, value in config.items():
-            f.write(f"{key}: {value}\n")
-        f.write("\n")
-        
-        f.write(generate_statistical_summary(sampler, param_names, best_params))
-        
-        f.write("\nCONVERGENCE DIAGNOSTICS:\n")
-        f.write("-"*40 + "\n")
-        f.write("R-hat statistics (should be < 1.1 for convergence):\n")
-        for i, name in enumerate(param_names):
-            Rhat = gelman_rubin(sampler, i)
-            status = "✓ CONVERGED" if Rhat < 1.1 else "⚠ NEEDS MORE ITERATIONS"
-            f.write(f"  {name}: {Rhat:.3f} - {status}\n")
-    
-    print(f"Report saved to 'mcmc_analysis_report.txt'")
-## end analysis block
 
 # ---- main ----
 if __name__ == '__main__':
@@ -712,7 +573,7 @@ if __name__ == '__main__':
     
     data = (days_tess,flux_tess,flux_tess_error)
     nwalkers = 6
-    niter = 5
+    niter = 4
     initial = np.array(initial_params)
     
     #ndim = len(initial)
@@ -753,62 +614,187 @@ if __name__ == '__main__':
     fig.savefig('corner_plot_with_truths.png', dpi=300, bbox_inches='tight')
     plt.close(fig)
 
+
+    # 1. Gráficas de evolución
+    print("\nGenerando gráficas de evolución...")
+    plot_simple_traces(sampler, labels)
     
-        # 1. Reporte visual completo
-    true_params = None 
-    generate_mcmc_report(sampler, data, labels, best_params, true_params)
+    # 2. Movimiento de walkers
+    print("Generando gráfica de movimiento...")
+    plot_walker_positions(sampler, labels)
     
-    # 2. Corner plot mejorado
-    plot_corner_with_stats(samples, labels, best_params)
+    # 3. Reporte simple
+    print("Generando reporte...")
+    best_params, best_lnprob = create_simple_report(sampler, initial, labels)
     
+    # 4. Corner plot simple
+    print("Generando corner plot...")
+    flat_samples = sampler.flatchain
     
-    # 3. Resumen estadístico en consola
-    print(generate_statistical_summary(sampler, labels, best_params))
+    # Tomar solo las últimas 5 iteraciones para el corner plot (si hay suficientes)
+    if niter > 5:
+        last_samples = sampler.chain[:, -5:, :].reshape(-1, ndim)
+    else:
+        last_samples = flat_samples
     
-    # 4. Guardar reporte completo en archivo
+ # Usar una paleta de colores más profesional
+    fig = corner.corner(
+        last_samples,
+        labels=labels,
+        show_titles=True,
+        title_kwargs={"fontsize": 10},
+        title_fmt='.3f',
+        quantiles=[0.16, 0.5, 0.84],
+        plot_datapoints=True,
+        fill_contours=True,
+        levels=[0.68, 0.95],  # Agregar nivel 95%
+        color='#2E86AB',      # Azul profesional
+        contour_kwargs={"colors": ['#2E86AB', '#A23B72']},  # Dos colores para contornos
+        contourf_kwargs={"alpha": 0.6},  # Transparencia
+        hist_kwargs={"color": "#2E86AB", "alpha": 0.7, "density": True},
+        smooth=0.8,  # Suavizado
+        range=[(p_min, p_max) for p_min, p_max in zip(last_samples.min(axis=0), last_samples.max(axis=0))],
+        bins=20
+    )
     
-    config = {
-    'nwalkers': nwalkers,
-    'niter': niter,
-    'ndim': ndim,
-    'initial_params': initial_params,
-    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-    save_complete_report(sampler, data, labels, best_params, config)
+        
+    # Marcar mejor ajuste
+    corner.overplot_lines(fig, best_params, color='#F18F01', linewidth=2)
+    corner.overplot_points(fig, best_params[None], color='#F18F01', 
+                      marker='*', markersize=12, markeredgecolor='black')
     
-    # 5. Plot adicional: Mejor ajuste vs datos
-    fig, ax = plt.subplots(figsize=(12, 5))
-    
-    # Simular curva con mejores parámetros
-    flux_best, days_best = star_animate(best_params)
-    
-    ax.errorbar(days_test, flux_test, yerr=flux_err, fmt='.', 
-                alpha=0.5, label='Datos', markersize=2)
-    ax.plot(days_best, flux_best, 'r-', linewidth=2, label='Mejor ajuste MCMC')
-    
-    # Añadir sombra para incertidumbre (muestreo de parámetros)
-    n_samples_plot = 50
-    for i in np.random.choice(len(samples), n_samples_plot):
-        flux_sample, _ = star_animate(samples[i])
-        ax.plot(days_best, flux_sample, 'gray', alpha=0.05)
-    
-    ax.set_xlabel('Días')
-    ax.set_ylabel('Flujo Normalizado')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    ax.set_title('Mejor ajuste MCMC con incertidumbre')
-    
-    plt.savefig('best_fit_comparison.png', dpi=300, bbox_inches='tight')
+    plt.suptitle(f'MCMC Test - {niter} iteraciones', fontsize=14)
+    plt.savefig('corner_plot_simple.png', dpi=150, bbox_inches='tight')
     plt.show()
     
-    print("\n" + "="*60)
-    print("ANÁLISIS COMPLETADO")
-    print("="*60)
-    print("Archivos generados:")
-    print("1. mcmc_report.png - Reporte visual completo")
-    print("2. corner_plot_enhanced.png - Corner plot con estadísticas")
-    print("3. mcmc_analysis_report.txt - Reporte detallado en texto")
-    print("4. best_fit_comparison.png - Comparación datos vs modelo")
-    print("5. mcmc_chain.npy - Cadena completa (si save_chain=True)")
-
-
+    print("\n✅ Simulación completada!")
+    print(f"📁 Resultados guardados en:")
+    print(f"   • traces_simples.png")
+    print(f"   • movimiento_walkers.png") 
+    print(f"   • corner_plot_simple.png")
+    print(f"   • reporte_mcmc.txt")
     
+    # Pregunta simple de verificación
+    print(f"\n❓ ¿Los walkers se están moviendo? (revisa movimiento_walkers.png)")
+    print(f"❓ ¿El likelihood aumenta? (revisa traces_simples.png)")
+    print(f"❓ ¿Los parámetros tienen distribución razonable? (revisa corner_plot_simple.png)")
+
+##########
+#########
+##########
+    # 5. NUEVA GRÁFICA: Likelihood vs cada parámetro (parámetros marginales)
+    print("Generando gráfica Likelihood vs Parámetros...")
+    fig, axes = plt.subplots(1, ndim, figsize=(4*ndim, 4))
+    
+    if ndim == 1:
+        axes = [axes]
+    
+    for i in range(ndim):
+        ax = axes[i]
+        
+        # Tomar una muestra aleatoria para no saturar (máx 1000 puntos)
+        n_points_plot = min(1000, len(flat_samples))
+        indices = np.random.choice(len(flat_samples), n_points_plot, replace=False)
+        
+        # Scatter plot: parámetro vs likelihood
+        scatter = ax.scatter(flat_samples[indices, i], 
+                            flat_lnprob[indices],
+                            c=flat_lnprob[indices],
+                            cmap='viridis',
+                            alpha=0.6,
+                            s=20,
+                            edgecolors='none')
+        
+        # Línea suavizada (moving average)
+        # Ordenar por valor del parámetro para la línea
+        sorted_idx = np.argsort(flat_samples[indices, i])
+        param_sorted = flat_samples[indices, i][sorted_idx]
+        lnL_sorted = flat_lnprob[indices][sorted_idx]
+        
+        # Suavizado con ventana móvil
+        window = max(1, n_points_plot // 20)
+        if window > 1:
+            kernel = np.ones(window) / window
+            lnL_smooth = np.convolve(lnL_sorted, kernel, mode='same')
+            ax.plot(param_sorted, lnL_smooth, 'r-', linewidth=2, alpha=0.8, 
+                    label='Suavizado')
+        
+        # Marcar el máximo
+        ax.axvline(best_params[i], color='red', linestyle='--', alpha=0.8,
+                  label=f'Máximo: {best_params[i]:.2f}')
+        
+        ax.set_xlabel(labels[i], fontsize=12)
+        ax.set_ylabel('ln(Likelihood)', fontsize=12)
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper left', fontsize=9)
+        
+        # Colorbar para la primera gráfica
+        if i == 0:
+            cbar = plt.colorbar(scatter, ax=ax)
+            cbar.set_label('ln(Likelihood)', fontsize=10)
+    
+    plt.suptitle('Likelihood vs Parámetros Individuales', fontsize=14, y=1.05)
+    plt.tight_layout()
+    plt.savefig('likelihood_vs_params.png', dpi=150, bbox_inches='tight', facecolor='white')
+    plt.show()
+    
+    # 6. Gráfica de evolución del likelihood para cada walker
+    print("Generando gráfica de evolución por walker...")
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), height_ratios=[3, 1])
+    
+    # Top: Evolución de likelihood por walker
+    ax1 = axes[0]
+    for w in range(min(nwalkers, 15)):  # Mostrar máximo 15 walkers
+        ax1.plot(sampler.lnprobability[w, :], 
+                 alpha=0.7, 
+                 linewidth=0.8,
+                 label=f'Walker {w}' if w < 5 else None)  # Solo etiquetar primeros 5
+    
+    ax1.set_ylabel('ln(Likelihood)', fontsize=12)
+    ax1.set_title('Evolución del Likelihood por Walker', fontsize=14)
+    ax1.grid(True, alpha=0.3)
+    if nwalkers <= 5:
+        ax1.legend(loc='lower right', fontsize=9)
+    
+    # Bottom: Promedio y desviación
+    ax2 = axes[1]
+    mean_lnprob = np.mean(sampler.lnprobability, axis=0)
+    std_lnprob = np.std(sampler.lnprobability, axis=0)
+    
+    ax2.plot(mean_lnprob, 'b-', linewidth=2, label='Promedio')
+    ax2.fill_between(range(niter), 
+                     mean_lnprob - std_lnprob,
+                     mean_lnprob + std_lnprob,
+                     alpha=0.3, color='blue', label='±1σ')
+    
+    # Línea horizontal en el máximo
+    max_lnprob = np.max(sampler.lnprobability[:, -1])
+    ax2.axhline(max_lnprob, color='red', linestyle='--', alpha=0.7,
+               label=f'Máximo final: {max_lnprob:.1f}')
+    
+    ax2.set_xlabel('Iteración', fontsize=12)
+    ax2.set_ylabel('ln(L) Promedio', fontsize=12)
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(loc='lower right', fontsize=9)
+    
+    plt.tight_layout()
+    plt.savefig('evolucion_likelihood.png', dpi=150, bbox_inches='tight', facecolor='white')
+    plt.show()
+    
+    # Actualizar reporte para incluir info sobre el likelihood
+    print("\n📊 INFORMACIÓN SOBRE EL LIKELIHOOD:")
+    print("="*40)
+    print("⚠️  El ln(Likelihood) SIEMPRE es negativo porque:")
+    print("   • ln(probabilidad) donde probabilidad ∈ [0,1]")
+    print("   • ln(x) < 0 cuando x < 1")
+    print("\n✅ Lo importante es que:")
+    print(f"   • ln(L) inicial ≈ {sampler.lnprobability[:, 0].mean():.1f}")
+    print(f"   • ln(L) final   ≈ {sampler.lnprobability[:, -1].mean():.1f}")
+    print(f"   • Mejoramiento: {sampler.lnprobability[:, -1].mean() - sampler.lnprobability[:, 0].mean():.1f}")
+    print("\n🎯 Valores típicos:")
+    print("   • ln(L) > -100: Ajuste excelente")
+    print("   • -100 a -1000: Buen ajuste")
+    print("   • -1000 a -10000: Ajuste moderado (común con muchos datos)")
+    print(f"   • Tu valor: {best_lnprob:.1f} → {'Ajuste esperado para datos reales' if best_lnprob < -10000 else '¡Excelente ajuste!'}")
+        
+      
