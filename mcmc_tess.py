@@ -297,9 +297,9 @@ def load_tess():
     
     df1 = pd.read_csv(csv1)
     #df2 = pd.read_csv(csv2)
-    F = df1["flux_normalized"]*0.9961104871028598 #scale factor
-    days =df1["Time"]
-    F_error = df1["flux_error_normalized"]*0.9961104871028598 #scale factor
+    F = df1["flux"]
+    days =df1["time"]
+    F_error = df1["flux_err"] #scale factor
     return F, days, F_error
 
 #  verification function to find the aprox parameters value, recibing the test light curve and days
@@ -410,7 +410,7 @@ def main(p0,nwalkers,niter,ndim,lnprob,data,save_chain=True):
     sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=(data,))
 
     print("Running burn-in...")
-    p0, _, _ = sampler.run_mcmc(p0, 3)
+    p0, _, _ = sampler.run_mcmc(p0, 10)
     sampler.reset()
 
     print("Running production...")
@@ -446,7 +446,7 @@ def plot_simple_traces(sampler, labels):
     axes[-1].legend()
     axes[-1].grid(True, alpha=0.3)
     
-    plt.suptitle('Evolución de Parámetros y Likelihood')
+    plt.suptitle('Parameter Evolution and Likelihood')
     plt.tight_layout()
     plt.savefig('traces_simples.png', dpi=150, bbox_inches='tight')
     plt.show()
@@ -469,7 +469,7 @@ def plot_walker_positions(sampler, labels):
         # Posiciones finales
         final = sampler.chain[:, -1, i]
         
-        ax.scatter([0]*nwalkers, initial, alpha=0.6, label='Inicial', s=50)
+        ax.scatter([0]*nwalkers, initial, alpha=0.6, label='Initial', s=50)
         ax.scatter([1]*nwalkers, final, alpha=0.6, label='Final', s=50)
         
         # Conectar puntos del mismo walker
@@ -477,9 +477,9 @@ def plot_walker_positions(sampler, labels):
             ax.plot([0, 1], [initial[w], final[w]], 'gray', alpha=0.2, lw=0.5)
         
         ax.set_xticks([0, 1])
-        ax.set_xticklabels(['Inicio', 'Fin'])
+        ax.set_xticklabels(['Start', 'End'])
         ax.set_ylabel(labels[i])
-        ax.set_title(f'Movimiento {labels[i]}')
+        ax.set_title(f'Moves {labels[i]}')
         ax.grid(True, alpha=0.3)
         ax.legend()
     
@@ -498,25 +498,25 @@ def create_simple_report(sampler, initial_params, labels):
     best_lnprob = flat_lnprob[best_idx]
     
     print("\n" + "="*50)
-    print("REPORTE DE SIMULACIÓN MCMC (PRUEBA)")
+    print("Simulation Report MCMC (TEST)")
     print("="*50)
     
-    print(f"\n📊 Configuración:")
+    print(f"\n📊 Configuration:")
     print(f"   • Walkers: {sampler.chain.shape[0]}")
-    print(f"   • Iteraciones: {sampler.chain.shape[1]}")
-    print(f"   • Parámetros: {sampler.chain.shape[2]}")
-    print(f"   • Total muestras: {len(flat_samples)}")
+    print(f"   • Iterations: {sampler.chain.shape[1]}")
+    print(f"   • Parameters: {sampler.chain.shape[2]}")
+    print(f"   • Total samples: {len(flat_samples)}")
     
-    print(f"\n🎯 Parámetros iniciales (MSE):")
+    print(f"\n🎯 Initial Parameters (MSE):")
     for i, label in enumerate(labels):
         print(f"   • {label}: {initial_params[i]:.3f}")
     
-    print(f"\n🏆 Mejor ajuste encontrado:")
+    print(f"\n🏆 Best Fit:")
     for i, label in enumerate(labels):
         print(f"   • {label}: {best_params[i]:.3f}")
     print(f"   • ln(Likelihood): {best_lnprob:.2f}")
     
-    print(f"\n📈 Rango explorado:")
+    print(f"\n📈 Explored Range:")
     for i, label in enumerate(labels):
         samples = flat_samples[:, i]
         print(f"   • {label}: [{samples.min():.3f}, {samples.max():.3f}]")
@@ -572,8 +572,8 @@ if __name__ == '__main__':
     #flux_err = 0.001 * (np.max(flux_test) - np.min(flux_test)) 
     
     data = (days_tess,flux_tess,flux_tess_error)
-    nwalkers = 6
-    niter = 4
+    nwalkers =20
+    niter = 20
     initial = np.array(initial_params)
     
     #ndim = len(initial)
@@ -682,6 +682,10 @@ if __name__ == '__main__':
 ##########
 #########
 ##########
+    flat_lnprob = sampler.flatlnprobability
+    best_idx = np.argmax(flat_lnprob)
+    best_params = flat_samples[best_idx]
+    best_lnprob = flat_lnprob[best_idx]
     # 5. NUEVA GRÁFICA: Likelihood vs cada parámetro (parámetros marginales)
     print("Generando gráfica Likelihood vs Parámetros...")
     fig, axes = plt.subplots(1, ndim, figsize=(4*ndim, 4))
@@ -733,7 +737,7 @@ if __name__ == '__main__':
             cbar = plt.colorbar(scatter, ax=ax)
             cbar.set_label('ln(Likelihood)', fontsize=10)
     
-    plt.suptitle('Likelihood vs Parámetros Individuales', fontsize=14, y=1.05)
+    plt.suptitle('Likelihood vs Individual Parameters', fontsize=14, y=1.05)
     plt.tight_layout()
     plt.savefig('likelihood_vs_params.png', dpi=150, bbox_inches='tight', facecolor='white')
     plt.show()
@@ -751,7 +755,7 @@ if __name__ == '__main__':
                  label=f'Walker {w}' if w < 5 else None)  # Solo etiquetar primeros 5
     
     ax1.set_ylabel('ln(Likelihood)', fontsize=12)
-    ax1.set_title('Evolución del Likelihood por Walker', fontsize=14)
+    ax1.set_title('Evolution of Likelihood per Walker', fontsize=14)
     ax1.grid(True, alpha=0.3)
     if nwalkers <= 5:
         ax1.legend(loc='lower right', fontsize=9)
@@ -761,7 +765,7 @@ if __name__ == '__main__':
     mean_lnprob = np.mean(sampler.lnprobability, axis=0)
     std_lnprob = np.std(sampler.lnprobability, axis=0)
     
-    ax2.plot(mean_lnprob, 'b-', linewidth=2, label='Promedio')
+    ax2.plot(mean_lnprob, 'b-', linewidth=2, label='Mean')
     ax2.fill_between(range(niter), 
                      mean_lnprob - std_lnprob,
                      mean_lnprob + std_lnprob,
@@ -770,10 +774,10 @@ if __name__ == '__main__':
     # Línea horizontal en el máximo
     max_lnprob = np.max(sampler.lnprobability[:, -1])
     ax2.axhline(max_lnprob, color='red', linestyle='--', alpha=0.7,
-               label=f'Máximo final: {max_lnprob:.1f}')
+               label=f'Maximun final: {max_lnprob:.1f}')
     
-    ax2.set_xlabel('Iteración', fontsize=12)
-    ax2.set_ylabel('ln(L) Promedio', fontsize=12)
+    ax2.set_xlabel('Iteration', fontsize=12)
+    ax2.set_ylabel('ln(L) Mean', fontsize=12)
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc='lower right', fontsize=9)
     
@@ -796,5 +800,5 @@ if __name__ == '__main__':
     print("   • -100 a -1000: Buen ajuste")
     print("   • -1000 a -10000: Ajuste moderado (común con muchos datos)")
     print(f"   • Tu valor: {best_lnprob:.1f} → {'Ajuste esperado para datos reales' if best_lnprob < -10000 else '¡Excelente ajuste!'}")
-        
+    best_params, best_lnprob = create_simple_report(sampler, initial, labels)
       
